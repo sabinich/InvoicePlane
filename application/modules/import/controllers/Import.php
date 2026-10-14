@@ -65,43 +65,56 @@ class Import extends Admin_Controller
         } else {
             $this->load->helper('file');
 
+            // Validate that at least one file was selected
+            if ( ! $this->input->post('files')) {
+                $this->session->set_flashdata('alert_error', _trans('import_no_files_selected'));
+                redirect('import/form');
+            }
+
+            // Filter to only allowed files that were actually selected
+            $files = array_intersect($this->allowed_files, $this->input->post('files'));
+
+            // Verify that all selected files exist in the import directory
+            $missing_files = [];
+            foreach ($files as $file) {
+                if ( ! file_exists('./uploads/import/' . $file)) {
+                    $missing_files[] = $file;
+                }
+            }
+
+            if ( ! empty($missing_files)) {
+                $this->session->set_flashdata('alert_error',
+                    _trans('import_files_not_found') . ': ' . implode(', ', $missing_files));
+                redirect('import/form');
+            }
+
             $import_id = $this->mdl_import->start_import();
 
-            if ($this->input->post('files')) {
-                $files = $this->allowed_files;
-
-                foreach ($files as $key => $file) {
-                    if ( ! is_numeric(array_search($file, $this->input->post('files'), true))) {
-                        unset($files[$key]);
-                    }
+            foreach ($files as $file) {
+                switch ($file) {
+                    case 'clients.csv':
+                        $ids = $this->mdl_import->import_data($file, 'ip_clients');
+                        $this->mdl_import->record_import_details($import_id, 'ip_clients', 'clients', $ids);
+                        break;
+                    case 'invoices.csv':
+                        $this->load->model('invoices/mdl_invoices');
+                        $ids = $this->mdl_import->import_invoices();
+                        $this->mdl_import->record_import_details($import_id, 'ip_invoices', 'invoices', $ids);
+                        break;
+                    case 'invoice_items.csv':
+                        $this->load->model('invoices/mdl_items');
+                        $ids = $this->mdl_import->import_invoice_items();
+                        $this->mdl_import->record_import_details($import_id, 'ip_invoice_items', 'invoice_items', $ids);
+                        break;
+                    case 'payments.csv':
+                        $this->load->model('payments/mdl_payments');
+                        $ids = $this->mdl_import->import_payments();
+                        $this->mdl_import->record_import_details($import_id, 'ip_payments', 'payments', $ids);
+                        break;
                 }
-
-                foreach ($files as $file) {
-                    switch ($file) {
-                        case 'clients.csv':
-                            $ids = $this->mdl_import->import_data($file, 'ip_clients');
-                            $this->mdl_import->record_import_details($import_id, 'ip_clients', 'clients', $ids);
-                            break;
-                        case 'invoices.csv':
-                            $this->load->model('invoices/mdl_invoices');
-                            $ids = $this->mdl_import->import_invoices();
-                            $this->mdl_import->record_import_details($import_id, 'ip_invoices', 'invoices', $ids);
-                            break;
-                        case 'invoice_items.csv':
-                            $this->load->model('invoices/mdl_items');
-                            $ids = $this->mdl_import->import_invoice_items();
-                            $this->mdl_import->record_import_details($import_id, 'ip_invoice_items', 'invoice_items', $ids);
-                            break;
-                        case 'payments.csv':
-                            $this->load->model('payments/mdl_payments');
-                            $ids = $this->mdl_import->import_payments();
-                            $this->mdl_import->record_import_details($import_id, 'ip_payments', 'payments', $ids);
-                            break;
-                    }
-                }
-
-                $this->mdl_import->cleanup_import_files();
             }
+
+            $this->mdl_import->cleanup_import_files();
 
             redirect('import');
         }
